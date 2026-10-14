@@ -116,6 +116,33 @@ class StreakTest(unittest.TestCase):
         self.assertEqual(github.streaks(d, dt.date(2026, 10, 14)), (1, 1))
 
 
+class TopReposTest(unittest.TestCase):
+    def test_counts_private_repos_across_pages(self):
+        pages = [
+            {"total_count": 3, "items": [
+                {"repository": {"full_name": "me/secret", "html_url": "u1", "private": True}},
+                {"repository": {"full_name": "me/secret", "html_url": "u1", "private": True}}]},
+            {"total_count": 3, "items": [
+                {"repository": {"full_name": "me/public", "html_url": "u2", "private": False}}]},
+        ]
+
+        class Resp(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        calls = iter(pages)
+        with mock.patch.object(github.subprocess, "run", return_value=mock.Mock(stdout="t")), \
+                mock.patch.object(github.urllib.request, "urlopen",
+                                  lambda req, timeout=None: Resp(json.dumps(next(calls)).encode())):
+            repos, total = github.top_repos("me", dt.date(2026, 10, 12))
+        self.assertEqual(total, 3)
+        self.assertEqual([(r["name"], r["commits"], r["private"]) for r in repos],
+                         [("me/secret", 2, True), ("me/public", 1, False)])
+
+
 class AnalyticsTest(unittest.TestCase):
     ENG = ("Date\tApp Apple Identifier\tEvent\tPage Type\tCounts\tUnique Counts\n"
            "2026-10-12\t100\tImpression\tNo page\t100\t80\n"

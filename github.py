@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import urllib.parse
 import urllib.request
 
 import asc
@@ -87,18 +88,44 @@ def change(current, previous):
     return round(100 * (current - previous) / previous, 1)
 
 
+def top_repos(login, since, limit=TOP_REPOS, max_pages=10):
+    """Repos with the most commits authored since `since` (a date), private ones included.
+
+    GraphQL's commitContributionsByRepository leaves out private-repo work (it shows up
+    only as restrictedContributionsCount), so this uses the commit search API instead.
+    Search covers default branches and returns at most 1000 commits.
+    """
+    token = subprocess.run([GH, "auth", "token"], capture_output=True, text=True, check=True).stdout.strip()
+    counts, seen, total = {}, 0, None
+    for page in range(1, max_pages + 1):
+        q = urllib.parse.quote(f"author:{login} author-date:>={since.isoformat()}")
+        req = urllib.request.Request(
+            f"https://api.github.com/search/commits?q={q}&per_page=100&page={page}",
+            headers={"Authorization": f"bearer {token}", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            body = json.load(r)
+        total = body["total_count"]
+        for item in body["items"]:
+            repo = item["repository"]
+            key = repo["full_name"]
+            counts.setdefault(key, {"name": key, "url": repo["html_url"], "private": repo["private"], "commits": 0})
+            counts[key]["commits"] += 1
+        seen += len(body["items"])
+        if not body["items"] or seen >= total:
+            break
+    ranked = sorted(counts.values(), key=lambda r: -r["commits"])
+    return ranked[:limit], total
+
+
 def collect():
     today = dt.datetime.now(dt.timezone.utc).date()
     monday = today - today.weekday() * ONE_DAY
-    v = graphql(f"""{{ rateLimit {{ limit remaining resetAt }}
-      viewer {{ login createdAt
-        contributionsCollection {{
+    v = graphql("""{ rateLimit { limit remaining resetAt }
+      viewer { login createdAt
+        contributionsCollection {
           totalCommitContributions totalPullRequestContributions totalIssueContributions
           totalPullRequestReviewContributions restrictedContributionsCount
-          contributionCalendar {{ totalContributions weeks {{ contributionDays {{ date contributionCount }} }} }} }}
-        week: contributionsCollection(from: "{monday.isoformat()}T00:00:00Z") {{
-          commitContributionsByRepository(maxRepositories: {TOP_REPOS}) {{
-            repository {{ nameWithOwner url isPrivate }} contributions {{ totalCount }} }} }} }} }}""")
+          contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } } }""")
     rate, v = v["rateLimit"], v["viewer"]
     cc = v["contributionsCollection"]
     recent = calendar_days(cc["contributionCalendar"])
@@ -117,6 +144,10 @@ def collect():
 
     week = span_sum(days, monday, today.weekday() + 1)
     prev_week = span_sum(days, monday - 7 * ONE_DAY, today.weekday() + 1)
+    try:
+        repos, week_commits = top_repos(v["login"], monday)
+    except OSError:  # search has its own, lower rate limit; the rest of the stats still count
+        repos, week_commits = [], None
     return {
         "login": v["login"],
         "since": created.year,
@@ -134,9 +165,8 @@ def collect():
             "issue": cc["totalIssueContributions"],
             "private": cc["restrictedContributionsCount"],
         },
-        "top_repos": [{"name": r["repository"]["nameWithOwner"], "url": r["repository"]["url"],
-                       "private": r["repository"]["isPrivate"], "commits": r["contributions"]["totalCount"]}
-                      for r in v["week"]["commitContributionsByRepository"]],
+        "top_repos": repos,
+        "week_commits": week_commits,
         "rate_limit": rate,
         "series": span(today - 6 * ONE_DAY, 7),
         # Monday-aligned weeks ending with the current one, for the heat grid

@@ -154,104 +154,139 @@ def review_lines(rv, app=None, prefix=""):
               "/distribution/activity/ios/ratingsResponses")
 
 
+def compact_row(label, x, y, z, width):
+    return f"{label[:width].ljust(width)} {x:>4} {y:>5} {z:>6}"
+
+
+def app_submenu(r, an, rt, rv, cur):
+    """Everything about one app, one level down."""
+    w = len("Sayfa görüntüleme")
+    print("--" + table_row("", "Gün", "Hafta", "Toplam", w) + f" | {BOLD}")
+    for label, k in (("Yeni indirme", "new"), ("Yeniden indirme", "re"),
+                     ("Güncelleme", "upd"), ("Satın alma", "iap")):
+        print("--" + table_row(label, r["day"][k], r["week"][k], num(r["all"][k]), w) + f" | {MONO}")
+    rev = r.get("revenue", {})
+    if rev.get("all"):
+        print("--" + table_row(f"Gelir ({cur})", money(rev.get("day"), cur), money(rev.get("week"), cur),
+                               money(rev.get("all"), cur), w) + f" | {MONO}")
+    funnel_rows(an, r["id"], w, "--")
+    print("-----")
+    app_rt = (rt or {}).get("apps", {}).get(r["id"], {})
+    if app_rt.get("count"):
+        by_cc = ", ".join(f"{cc.upper()} {v[0]:.1f}".replace(".", ",") + f" ({v[1]})"
+                          for cc, v in list(app_rt["countries"].items())[:4])
+        print(f"--Puan {stars(app_rt['average'])} · {app_rt['count']} puan · {by_cc} | {MONO}")
+    if r.get("countries"):
+        print("--Ülkeler: " + ", ".join(f"{c} {n}" for c, n in r["countries"]) + f" | {MONO}")
+    if rv and rv.get("available"):
+        review_lines(rv, r["id"], "--")
+    print(f"--App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
+
+
 def render_appstore(snap, errors):
     a, an, rt, rv = snap.get("appstore"), snap.get("analytics"), snap.get("ratings"), snap.get("reviews")
-    print(f"App Store | {BOLD} sfimage=arrow.down.circle")
     if not a:
+        print(f"App Store | {BOLD} sfimage=arrow.down.circle")
         stale_note("appstore", errors, snap)
         return
-    stale_note("appstore", errors, snap)
     cur = a.get("currency", "USD")
-    w = max([len(r["name"]) for r in a["apps"]] + [len("Sayfa görüntüleme")])
-    print(table_row("Yeni indirme", "Gün", "Hafta", "Toplam", w) + f" | {BOLD}")
-    for r in a["apps"]:
-        mark = arrow(appstore.change(r["week"]["new"], r["prev_week"]["new"]))
-        print(table_row(r["name"], r["day"]["new"], r["week"]["new"], num(r["all"]["new"]), w)
-              + f"  {mark} | {MONO}")
-        print("--" + table_row("", "Gün", "Hafta", "Toplam", w) + f" | {BOLD}")
-        for label, k in (("Yeni indirme", "new"), ("Yeniden indirme", "re"),
-                         ("Güncelleme", "upd"), ("Satın alma", "iap")):
-            print("--" + table_row(label, r["day"][k], r["week"][k], num(r["all"][k]), w) + f" | {MONO}")
-        rev = r.get("revenue", {})
-        if rev.get("all"):
-            print("--" + table_row(f"Gelir ({cur})", money(rev.get("day"), cur), money(rev.get("week"), cur),
-                                   money(rev.get("all"), cur), w) + f" | {MONO}")
-        funnel_rows(an, r["id"], w, "--")
-        print("-----")
-        app_rt = (rt or {}).get("apps", {}).get(r["id"], {})
-        if app_rt.get("count"):
-            by_cc = ", ".join(f"{cc.upper()} {v[0]:.1f}".replace(".", ",") + f" ({v[1]})"
-                              for cc, v in list(app_rt["countries"].items())[:4])
-            print(f"--Puan {stars(app_rt['average'])} · {app_rt['count']} puan · {by_cc} | {MONO}")
-        else:
-            print(f"--Henüz puan yok | {GRAY}")
-        if r.get("countries"):
-            print("--Ülkeler: " + ", ".join(f"{c} {n}" for c, n in r["countries"]) + f" | {MONO}")
-        if rv and rv.get("available"):
-            review_lines(rv, r["id"], "--")
-        print(f"--App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
-    print(table_row("Toplam", a["day"], a["week"], num(a["all"]), w) + f"  {arrow(a.get('week_change'))} | {BOLD}")
-    rev = a.get("revenue", {})
-    print(table_row(f"Gelir ({cur})", money(rev.get("day"), cur), money(rev.get("week"), cur),
-                    money(rev.get("all"), cur), w) + f" | {MONO}")
-    funnel_rows(an, "_all", w)
+    change = arrow(a.get("week_change"))
+    print(f"App Store   hafta {a['week']} {change}   toplam {num(a['all'])} | {BOLD} sfimage=arrow.down.circle")
+    stale_note("appstore", errors, snap)
 
+    active = [r for r in a["apps"] if r["all"]["new"] or r["all"]["re"]]
+    idle = [r for r in a["apps"] if r not in active]
+    w = min(14, max([len(r["name"]) for r in active] + [10]))
+    print(compact_row("", "Gün", "Hafta", "Toplam", w) + f" | font=Menlo size=10 color=gray")
+    for r in active:
+        mark = arrow(appstore.change(r["week"]["new"], r["prev_week"]["new"]))
+        print(compact_row(r["name"], r["day"]["new"], r["week"]["new"], num(r["all"]["new"]), w)
+              + f" {mark} | {MONO}")
+        app_submenu(r, an, rt, rv, cur)
+    if idle:
+        print(f"Henüz indirmesi olmayan {len(idle)} uygulama | {GRAY}")
+        for r in idle:
+            print(f"--{r['name']} | {MONO}")
+            print(f"----App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
+
+    # one summary row; the rest lives one level down
+    parts = []
     if rt and rt.get("count"):
-        extra = f" · son 7 gün +{rt['new_7d']}" if rt.get("new_7d") else ""
-        print(f"Puan {stars(rt['average'])} · {rt['count']} puan{extra} | {MONO}")
-    if a.get("countries"):
-        print(f"Ülkeler (tüm zamanlar) | {MONO}")
-        for c, n in a["countries"]:
-            print(f"--{c:<4}{n:>6} | {MONO}")
+        parts.append(f"{stars(rt['average'])} · {rt['count']} puan")
     if rv and rv.get("available"):
         new = len(rv.get("new") or [])
-        print(f"Yorumlar ({rv['total']}{f', {new} yeni' if new else ''}) | {MONO}")
+        parts.append(f"{rv['total']} yorum" + (f" ({new} yeni)" if new else ""))
+    print(("   ".join(parts) or "Ayrıntılar") + f" | {MONO}")
+    if rv and rv.get("available") and rv.get("latest"):
+        print(f"--Son yorumlar | {BOLD}")
         review_lines(rv, None, "--")
+        print("-----")
     elif rv:
-        print(f"Yorumlar: {rv.get('reason')} | {GRAY}")
-    stale_note("ratings", errors, snap)
-    stale_note("reviews", errors, snap)
-    stale_note("analytics", errors, snap)
-
+        print(f"--Yorumlar: {rv.get('reason')} | {GRAY}")
+    rev = a.get("revenue", {})
+    w2 = len("Sayfa görüntüleme")
+    print("--" + table_row("", "Gün", "Hafta", "Toplam", w2) + f" | {BOLD}")
+    print("--" + table_row(f"Gelir ({cur})", money(rev.get("day"), cur), money(rev.get("week"), cur),
+                           money(rev.get("all"), cur), w2) + f" | {MONO}")
+    funnel_rows(an, "_all", w2, "--")
+    if a.get("countries"):
+        print("-----")
+        print("--Ülkeler (tüm zamanlar): " + ", ".join(f"{c} {n}" for c, n in a["countries"]) + f" | {MONO}")
+    print("-----")
     day = dt.date.fromisoformat(a["last_day"]).strftime("%d.%m") if a["last_day"] else "–"
-    print(f"Gün: son rapor ({day}, Pasifik saati). ▲▼: geçen haftanın aynı günlerine göre. | {GRAY}")
+    print(f"--Gün: son rapor ({day}, Pasifik saati). ▲▼: geçen haftanın aynı günlerine göre. | {GRAY}")
     if not an or not an.get("ready"):
-        print(f"Impressions ve dönüşüm: Apple raporu hazırlanıyor (1-2 gün) | {GRAY}")
+        print(f"--Impressions ve dönüşüm: Apple raporu hazırlanıyor (1-2 gün) | {GRAY}")
     else:
-        print(f"Dönüşüm = indirme / tekil impression. Gelir bugünkü kurla çevrildi. | {GRAY}")
+        print(f"--Dönüşüm = indirme / tekil impression. | {GRAY}")
+    print(f"--Gelir: Apple kesintisi sonrası, bugünkü kurla çevrildi. | {GRAY}")
+    for key in ("ratings", "reviews", "analytics"):
+        stale_note(key, errors, snap)
 
 
 def render_github(snap, errors):
     g = snap.get("github")
-    print(f"GitHub | {BOLD} sfimage=square.grid.3x3.fill href=https://github.com/{g['login'] if g else ''}")
-    stale_note("github", errors, snap)
     if not g:
+        print(f"GitHub | {BOLD} sfimage=square.grid.3x3.fill")
+        stale_note("github", errors, snap)
         return
-    row = lambda label, n, extra="": f"{label.ljust(22)}{num(n):>8}  {extra}"  # noqa: E731
-    print(row("Bugün", g["today"]) + f" | {MONO}")
+    s = g.get("streak") or {}
+    streak = f"   seri {s['current']} gün" if s else ""
+    print(f"GitHub   bugün {num(g['today'])}{streak} | {BOLD} sfimage=square.grid.3x3.fill "
+          f"href=https://github.com/{g['login']}")
+    stale_note("github", errors, snap)
+    row = lambda label, n, extra="": f"{label.ljust(14)}{num(n):>7} {extra}"  # noqa: E731
     print(row("Bu hafta", g["week"], arrow(g.get("week_change"))) + f" | {MONO}")
     print(row("Son 1 yıl", g["last_year"]) + f" | {MONO}")
-    print(row(f"Tüm zamanlar ({g['since']}-)", g["alltime"]) + f" | {MONO}")
-    s = g.get("streak")
-    if s:
-        print(f"{'Seri'.ljust(22)}{s['current']:>4} gün  en uzun {s['longest']} | {MONO}")
-    if g.get("top_repos"):
-        print(f"Bu hafta en çok commit | {MONO}")
-        for r in g["top_repos"]:
+
+    top = g.get("top_repos") or []
+    label = f"En çok: {top[0]['name'].split('/')[-1]} {top[0]['commits']}" if top else "Ayrıntılar"
+    print(f"{label} | {MONO}")
+    if top:
+        total = g.get("week_commits")
+        print(f"--Bu hafta commit{f' ({num(total)})' if total else ''} | {BOLD}")
+        for r in top:
             print(f"--{r['name'].split('/')[-1][:24]:<26}{r['commits']:>5} | {MONO} href={r['url']}")
-    print(f"Son 1 yıl dağılımı | {MONO}")
+        print("-----")
+    print("--" + row(f"Tüm zamanlar ({g['since']}-)", g["alltime"]).rstrip() + f" | {MONO}")
+    if s:
+        print("--" + row("En uzun seri", s["longest"]).rstrip() + " gün | " + MONO)
     b = g["breakdown"]
-    for label, k in (("Commit", "commit"), ("Pull request", "pr"), ("Review", "review"),
-                     ("Issue", "issue"), ("Özel repo katkıları", "private")):
-        print("--" + row(label, b[k]).rstrip() + f" | {MONO}")
-    print(f"Son 7 gün | {MONO}")
+    print("-----")
+    print(f"--Son 1 yıl | {BOLD}")
+    for lbl, k in (("Commit", "commit"), ("Pull request", "pr"), ("Review", "review"),
+                   ("Issue", "issue"), ("Özel repo", "private")):
+        print("--" + row(lbl, b[k]).rstrip() + f" | {MONO}")
+    print("-----")
+    print(f"--Son 7 gün | {BOLD}")
     for d in reversed(g["series"]):
         day = dt.date.fromisoformat(d["date"])
         bar = "▇" * min(20, (d["count"] + 24) // 25)
         print(f"--{WEEKDAYS[day.weekday()]} {day.strftime('%d.%m')}  {d['count']:>5}  {bar} | {MONO}")
     rl = g.get("rate_limit")
     if rl:
-        print(f"API kotası {num(rl['remaining'])}/{num(rl['limit'])}. Günler UTC'ye göre. | {GRAY}")
+        print("-----")
+        print(f"--API kotası {num(rl['remaining'])}/{num(rl['limit'])}. Günler UTC'ye göre. | {GRAY}")
 
 
 def main():
@@ -264,8 +299,7 @@ def main():
     print("---")
     render_github(snap, errors)
     print("---")
-    print(f"Menüde: App Store bu hafta, GitHub bugün. Güncellendi {dt.datetime.now().strftime('%H:%M')} | {GRAY}")
-    print("Yenile | refresh=true")
+    print(f"Yenile   {dt.datetime.now().strftime('%H:%M')} | refresh=true {GRAY}")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+# secrets and personal data: never commit
+*.p8
+config.json
+snapshot.json
+.env
+.env.*
+widget/Local.xcconfig
+
+# generated
+.venv/
+__pycache__/
+widget/build/
+widget/DevStats.xcodeproj/
+.DS_Store

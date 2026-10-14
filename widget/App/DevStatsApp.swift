@@ -9,6 +9,10 @@ enum Main {
             MainActor.assumeIsolated { Renderer.renderAll() }
             exit(0)
         }
+        if CommandLine.arguments.contains("--measure") {
+            MainActor.assumeIsolated { Renderer.measureAll() }
+            exit(0)
+        }
         DevStatsApp.main()
     }
 }
@@ -73,6 +77,23 @@ enum Renderer {
             write(WidgetFrame(size: Sizes.large) { LargeView(s: snap) }, scheme, dir.appendingPathComponent("large-\(tag).png"))
         }
         print(dir.path)
+    }
+
+    /// Ideal content height of each layout at the widget's content width, compared with the
+    /// height left inside 16 pt content margins. Taller content is centered by WidgetKit and
+    /// loses its top rows (the clipped headers), so every layout has to report "fits".
+    static func measureAll() {
+        let snap = CommandLine.arguments.contains("--sample") ? .sample : (SnapshotStore.load() ?? .sample)
+        func measure<V: View>(_ name: String, _ size: CGSize, _ view: V) {
+            let width = size.width - 32, available = size.height - 32
+            let r = ImageRenderer(content: view.frame(width: width).fixedSize(horizontal: false, vertical: true))
+            let h = r.nsImage?.size.height ?? -1
+            let verdict = h <= available ? "fits" : "OVERFLOW"
+            print("\(name.padding(toLength: 7, withPad: " ", startingAt: 0)) content \(Int(h)) / available \(Int(available))  \(verdict)")
+        }
+        measure("small", Sizes.small, SmallView(s: snap))
+        measure("medium", Sizes.medium, MediumView(s: snap))
+        measure("large", Sizes.large, LargeView(s: snap))
     }
 
     private static func write<V: View>(_ view: V, _ scheme: ColorScheme, _ url: URL) {

@@ -25,7 +25,7 @@ struct BigNumber: View {
     let value: Int
     let caption: String
     var delta: String = ""
-    var size: CGFloat = 32
+    var size: CGFloat = 26
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -72,22 +72,17 @@ struct StatLine: View {
 /// Seven bars; the most recent one is solid, the rest faded.
 struct Bars: View {
     let series: [DayCount]
-    var height: CGFloat = 26
+    var height: CGFloat = 16
 
     var body: some View {
         let peak = max(series.map(\.count).max() ?? 0, 1)
         HStack(alignment: .bottom, spacing: 4) {
             ForEach(Array(series.enumerated()), id: \.offset) { i, d in
-                VStack(spacing: 2) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.primary.opacity(i == series.count - 1 ? 0.9 : 0.28))
-                        .frame(height: max(2, height * CGFloat(d.count) / CGFloat(peak)))
-                        .frame(height: height, alignment: .bottom)
-                    Text(Fmt.weekdayLetter(d.date))
-                        .font(.system(size: 8))
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity)
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.primary.opacity(i == series.count - 1 ? 0.9 : 0.28))
+                    .frame(height: max(2, height * CGFloat(d.count) / CGFloat(peak)))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: height, alignment: .bottom)
             }
         }
     }
@@ -159,19 +154,21 @@ struct AppStoreColumn: View {
     var showBars = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             SectionHeader(symbol: "arrow.down.circle", title: "App Store")
-            BigNumber(value: a.week, caption: "bu hafta indirme", delta: Fmt.delta(a.weekChange))
-            VStack(spacing: 2) {
+            BigNumber(value: a.week, caption: "bu hafta · toplam \(Fmt.n(a.all))", delta: Fmt.delta(a.weekChange))
+            VStack(spacing: 1) {
                 if let f = funnel {
                     StatLine(label: "Impressions", value: f.impressions)
                     StatLine(label: "Dönüşüm", text: Fmt.pct(f.conversion))
                 } else {
-                    StatLine(label: "Toplam", value: a.all)
+                    if let week = a.revenue?.week, (a.revenue?.all ?? 0) > 0 {
+                        StatLine(label: "Gelir", text: Fmt.money(week, a.currency))
+                    } else {
+                        StatLine(label: "Son gün", value: a.day)
+                    }
                     if let r = rating, r.count > 0 {
                         StatLine(label: "Puan", text: "\(Fmt.stars(r.average)) (\(r.count))")
-                    } else {
-                        StatLine(label: "Son gün (\(Fmt.dayMonth(a.lastDay)))", value: a.day)
                     }
                 }
             }
@@ -188,10 +185,10 @@ struct GitHubColumn: View {
     var showBars = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             SectionHeader(symbol: "square.grid.3x3.fill", title: "GitHub")
             BigNumber(value: g.today, caption: "bugün katkı")
-            VStack(spacing: 2) {
+            VStack(spacing: 1) {
                 StatLine(label: "Bu hafta", value: g.week, trailing: Fmt.delta(g.weekChange))
                 if let s = g.streak {
                     StatLine(label: "Seri", text: "\(s.current) gün")
@@ -213,7 +210,7 @@ struct SmallView: View {
     let s: Snapshot
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             if let a = s.appstore {
                 compact(symbol: "arrow.down.circle", title: "App Store", value: a.week,
                         caption: "bu hafta · \(Fmt.n(a.all)) toplam", delta: Fmt.delta(a.weekChange))
@@ -255,9 +252,7 @@ struct LargeView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            MediumView(s: s).frame(height: 130)
-            Divider().opacity(0.5)
-            kpis
+            MediumView(s: s).frame(height: 118)
             Divider().opacity(0.5)
             if let a = s.appstore { appTable(a) }
             Divider().opacity(0.5)
@@ -266,8 +261,8 @@ struct LargeView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Son \(g.calendar.count / 7) hafta")
                             .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-                        Text("· \(Fmt.n(g.alltime)) katkı, \(String(g.since))'den beri")
-                            .font(.system(size: 10)).foregroundStyle(.tertiary)
+                        Text("· \(Fmt.n(g.alltime)) katkı" + (g.streak.map { " · en uzun seri \($0.longest)" } ?? ""))
+                            .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
                         Spacer()
                         Text((s.isStale ? "eski veri · " : "") + Fmt.time(s.generatedAt))
                             .font(.system(size: 9)).foregroundStyle(.tertiary)
@@ -278,18 +273,6 @@ struct LargeView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var kpis: some View {
-        HStack(spacing: 8) {
-            if let a = s.appstore, let all = a.revenue?.all, all > 0 {
-                Kpi(label: "GELİR · TOPLAM", value: Fmt.money(all, a.currency))
-            } else {
-                Kpi(label: "PUAN", value: s.ratings.map { "\(Fmt.stars($0.average)) · \($0.count)" } ?? "–")
-            }
-            Kpi(label: "KATKI · SON 1 YIL", value: s.github.map { Fmt.n($0.lastYear) } ?? "–")
-            Kpi(label: "EN UZUN SERİ", value: s.github?.streak.map { "\($0.longest) gün" } ?? "–")
-        }
     }
 
     private func appTable(_ a: AppStoreStats) -> some View {

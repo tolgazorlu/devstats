@@ -23,6 +23,7 @@ def main():
     p.add_argument("--key-id", required=True)
     p.add_argument("--vendor-number", required=True)
     p.add_argument("--p8", help="path to AuthKey_<KEYID>.p8; omit if it is already in the config dir")
+    p.add_argument("--currency", help="display currency for revenue, e.g. TRY, USD, EUR (default: keep, else USD)")
     a = p.parse_args()
 
     os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -40,8 +41,14 @@ def main():
     os.chmod(target, stat.S_IRUSR | stat.S_IWUSR)
 
     cfg_path = os.path.join(CONFIG_DIR, "config.json")
+    old = {}
+    if os.path.exists(cfg_path):
+        with open(cfg_path) as f:
+            old = json.load(f)
+    currency = (a.currency or old.get("currency") or "USD").upper()
     with open(cfg_path, "w") as f:
-        json.dump({"key_id": a.key_id, "issuer_id": a.issuer_id, "vendor_number": a.vendor_number}, f)
+        json.dump({"key_id": a.key_id, "issuer_id": a.issuer_id, "vendor_number": a.vendor_number,
+                   "currency": currency}, f)
     os.chmod(cfg_path, stat.S_IRUSR | stat.S_IWUSR)
     print(f"ok: {cfg_path} and {os.path.basename(target)} (0600)")
 

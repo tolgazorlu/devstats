@@ -9,7 +9,8 @@ Your App Store and GitHub numbers in the macOS menu bar and on the desktop.
   conversion rate.
 - **GitHub:** contributions today, this week (▲▼ vs last week), last year and all time
   (the numbers on your profile overview), current and longest streak, the repos you
-  committed to most this week, a 7-day chart and a contribution heat grid.
+  committed to most this week (private repos included, via commit search), a 7-day
+  chart and a contribution heat grid.
 - **Resilient:** if an API is down, the last good numbers stay on screen with the time
   they were fetched.
 
@@ -99,15 +100,18 @@ writes `config.json` next to it. To switch keys, run it again with the new value
 ## Using it
 
 **Menu bar:** one item showing App Store downloads this week and GitHub contributions
-today. Click it for the tables. Hover an app for its details and a link to App Store
+today. Click it for a compact summary (about a dozen rows); details sit one level down.
+Hover an app for its details and a link to App Store
 Connect, its rating per country, its top countries and its reviews. The plugin
 refreshes every 30 minutes, **Yenile** refreshes now. New reviews arrive as a macOS
 notification from SwiftBar (allow SwiftBar notifications in System Settings).
 
 **Desktop widget:** right-click the desktop > **Edit Widgets** > search **Dev Stats**.
 Three sizes: small (two headline numbers with change and streak), medium (both
-columns with 7-day bars), large (adds revenue or rating, contributions last year,
-longest streak, the top apps with their rating, and a 25-week contribution grid).
+columns with 7-day bars), large (adds the top apps with their rating and a 25-week
+contribution grid with the longest streak). Run `DevStats --measure` after layout
+changes: it checks every size fits inside the widget's content area, because WidgetKit
+centers content that is too tall and cuts off the header row.
 It shows "eski veri" when the plugin has not refreshed for over an hour. Monochrome, follows
 light and dark mode. The widget reads the snapshot the menu bar plugin writes, so the
 plugin has to be running.

@@ -17,6 +17,8 @@ TTL = 86400
 
 def rates(base):
     """{currency: units of that currency per 1 `base`}."""
+    if not (len(base) == 3 and base.isascii() and base.isalpha()):
+        raise ValueError("currency must be a 3-letter code")
     path = os.path.join(CACHE, f"fx-{base}.json")
     fresh = os.path.exists(path) and time.time() - os.path.getmtime(path) < TTL
     if not fresh:

@@ -2,6 +2,7 @@
 import gzip
 import json
 import os
+import stat
 import time
 import urllib.error
 import urllib.parse
@@ -11,6 +12,15 @@ import jwt
 
 CONFIG_DIR = os.path.expanduser("~/.config/asc-menubar")
 BASE = "https://api.appstoreconnect.apple.com"
+API_HOST = "api.appstoreconnect.apple.com"
+TOKEN_TTL = 1200  # Apple rejects tokens that live longer than 20 minutes
+
+
+def ensure_private_dir():
+    """Create the config dir as 0700 and tighten it if it already exists looser."""
+    os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+    if stat.S_IMODE(os.stat(CONFIG_DIR).st_mode) & 0o077:
+        os.chmod(CONFIG_DIR, 0o700)
 
 
 def load_config():
@@ -18,22 +28,45 @@ def load_config():
         return json.load(f)
 
 
+def key_path(cfg):
+    key_id = str(cfg["key_id"])
+    if not key_id.isalnum():  # the id becomes part of a file name
+        raise ValueError("config key_id must be alphanumeric")
+    return os.path.join(CONFIG_DIR, f"AuthKey_{key_id}.p8")
+
+
 def token(cfg):
-    with open(os.path.join(CONFIG_DIR, f"AuthKey_{cfg['key_id']}.p8")) as f:
+    path = key_path(cfg)
+    if stat.S_IMODE(os.stat(path).st_mode) & 0o077:
+        os.chmod(path, 0o600)  # private key must not be readable by other users
+    with open(path) as f:
         key = f.read()
     now = int(time.time())
     return jwt.encode(
-        {"iss": cfg["issuer_id"], "iat": now, "exp": now + 1200, "aud": "appstoreconnect-v1"},
+        {"iss": cfg["issuer_id"], "iat": now, "exp": now + TOKEN_TTL, "aud": "appstoreconnect-v1"},
         key,
         algorithm="ES256",
         headers={"kid": cfg["key_id"], "typ": "JWT"},
     )
 
 
-def request(cfg, path, params=None, method="GET", body=None, raw=False):
+def api_url(path):
+    """Absolute URL on the App Store Connect API host; anything else is refused.
+
+    Paging follows `links.next` from responses, so this guarantees the bearer token is
+    only ever sent to Apple's API over HTTPS.
+    """
     url = path if path.startswith("http") else BASE + path
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or parts.hostname != API_HOST:
+        raise ValueError(f"refusing to send credentials to {parts.scheme}://{parts.hostname}")
+    return url
+
+
+def request(cfg, path, params=None, method="GET", body=None, raw=False):
+    url = api_url(path)
     if params:
-        url += "?" + urllib.parse.urlencode(params)
+        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
     headers = {
         "Authorization": f"Bearer {token(cfg)}",
         "Accept": "application/a-gzip" if raw else "application/json",
@@ -52,6 +85,8 @@ def request(cfg, path, params=None, method="GET", body=None, raw=False):
 
 def download(url):
     """Fetch a presigned report segment URL (no auth header) and gunzip it."""
+    if urllib.parse.urlsplit(url).scheme != "https":
+        raise ValueError("report segment URL must be https")
     with urllib.request.urlopen(url, timeout=120) as r:
         content = r.read()
     return gzip.decompress(content) if content[:2] == b"\x1f\x8b" else content

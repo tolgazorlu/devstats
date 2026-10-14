@@ -15,7 +15,25 @@ need_brew() {
 }
 
 step "Python environment"
-[[ -x "$ROOT/.venv/bin/python" ]] || python3 -m venv "$ROOT/.venv"
+# The Python that ships with the Xcode command line tools (3.9) no longer gets security
+# fixes, so prefer a supported interpreter and rebuild an old venv.
+pick_python() {
+  # Homebrew first: a stable, user-managed interpreter the venv can keep pointing at.
+  for p in /opt/homebrew/bin/python3.13 /opt/homebrew/bin/python3.12 /usr/local/bin/python3.13 \
+           /usr/local/bin/python3.12 /opt/homebrew/bin/python3 /usr/local/bin/python3 \
+           python3.13 python3.12 python3.11 python3.10 python3; do
+    if command -v "$p" >/dev/null && "$p" -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
+      command -v "$p"; return 0
+    fi
+  done
+  return 1
+}
+PY="$(pick_python)" || { echo "Python 3.10+ is required (brew install python)"; exit 1; }
+if [[ -x "$ROOT/.venv/bin/python" ]] && ! "$ROOT/.venv/bin/python" -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
+  echo "rebuilding .venv on $("$PY" --version)"
+  rm -rf "$ROOT/.venv"
+fi
+[[ -x "$ROOT/.venv/bin/python" ]] || "$PY" -m venv "$ROOT/.venv"
 "$ROOT/.venv/bin/pip" install -q --disable-pip-version-check -r "$ROOT/requirements.txt"
 
 step "SwiftBar"

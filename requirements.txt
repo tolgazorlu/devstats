@@ -1,2 +1,3 @@
-pyjwt>=2.8
-cryptography>=42
+# Exact pins; checked with pip-audit before each bump.
+PyJWT==2.15.1
+cryptography==50.0.2

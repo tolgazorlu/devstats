@@ -48,7 +48,12 @@ if [[ -z "$CURRENT_DIR" ]]; then
   echo "SwiftBar plugin folder set to $ROOT/plugins"
 elif [[ "$CURRENT_DIR" != "$ROOT/plugins" ]]; then
   # keep the user's existing plugin folder, link ours into it
-  ln -sf "$ROOT/plugins/devstats.30m.sh" "$CURRENT_DIR/devstats.30m.sh"
+  case "$CURRENT_DIR" in
+    "$HOME"/*) ;;
+    *) echo "SwiftBar plugin folder $CURRENT_DIR is outside \$HOME, not touching it"; exit 1 ;;
+  esac
+  [[ -d "$CURRENT_DIR" && ! -L "$CURRENT_DIR" ]] || { echo "$CURRENT_DIR is not a directory"; exit 1; }
+  ln -sfn "$ROOT/plugins/devstats.30m.sh" "$CURRENT_DIR/devstats.30m.sh"
   echo "Linked plugin into existing SwiftBar folder $CURRENT_DIR"
 fi
 

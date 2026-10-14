@@ -22,14 +22,28 @@ struct AppRow: Codable, Hashable, Identifiable {
     let all: Kinds
 }
 
+struct Revenue: Codable {
+    let day: Double?
+    let week: Double?
+    let all: Double?
+}
+
 struct AppStoreStats: Codable {
     let lastDay: String?
     let weekStart: String
     let day: Int
     let week: Int
     let all: Int
+    var weekChange: Double? = nil
+    var currency: String? = nil
+    var revenue: Revenue? = nil
     let apps: [AppRow]
     let series: [DayCount]
+}
+
+struct Streak: Codable {
+    let current: Int
+    let longest: Int
 }
 
 struct GitHubStats: Codable {
@@ -37,10 +51,23 @@ struct GitHubStats: Codable {
     let since: Int
     let today: Int
     let week: Int
+    var weekChange: Double? = nil
     let lastYear: Int
     let alltime: Int
+    var streak: Streak? = nil
     let series: [DayCount]
     let calendar: [DayCount]
+}
+
+struct AppRating: Codable {
+    let average: Double?
+    let count: Int
+}
+
+struct RatingsStats: Codable {
+    let average: Double?
+    let count: Int
+    let apps: [String: AppRating]?
 }
 
 struct Funnel: Codable {
@@ -64,7 +91,14 @@ struct Snapshot: Codable {
     let generatedAt: String
     let appstore: AppStoreStats?
     var analytics: AnalyticsStats? = nil
+    var ratings: RatingsStats? = nil
     let github: GitHubStats?
+
+    /// True when the snapshot is older than two plugin runs, i.e. the plugin stopped.
+    var isStale: Bool {
+        guard let d = ISO8601DateFormatter().date(from: generatedAt) else { return false }
+        return Date().timeIntervalSince(d) > 75 * 60
+    }
 }
 
 enum SnapshotStore {
@@ -96,6 +130,34 @@ enum Fmt {
     static func pct(_ v: Double?) -> String {
         guard let v else { return "–" }
         return "%" + String(format: "%.1f", v).replacingOccurrences(of: ".", with: ",")
+    }
+
+    /// "▲%12" / "▼%3" / "=" / "" (nothing to compare); monochrome on purpose
+    static func delta(_ v: Double?) -> String {
+        guard let v else { return "" }
+        if v == 0 { return "=" }
+        return (v > 0 ? "▲" : "▼") + "%" + String(Int(abs(v).rounded()))
+    }
+
+    /// "★ 4,8" or "–"
+    static func stars(_ v: Double?) -> String {
+        guard let v else { return "–" }
+        return "★ " + String(format: "%.1f", v).replacingOccurrences(of: ".", with: ",")
+    }
+
+    /// "₺1.234" / "$12,50"; whole numbers from 100 up
+    static func money(_ v: Double?, _ currency: String?) -> String {
+        guard let v else { return "–" }
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.locale = Locale(identifier: "tr_TR")
+        let whole = v == 0 || abs(v) >= 100
+        f.minimumFractionDigits = whole ? 0 : 2
+        f.maximumFractionDigits = whole ? 0 : 2
+        let s = f.string(from: NSNumber(value: v)) ?? "\(v)"
+        let symbols = ["TRY": "₺", "USD": "$", "EUR": "€", "GBP": "£"]
+        guard let c = currency else { return s }
+        return symbols[c].map { $0 + s } ?? "\(s) \(c)"
     }
 
     private static let iso: DateFormatter = {
@@ -141,6 +203,7 @@ extension Snapshot {
             generatedAt: "2026-10-14T12:25:05+03:00",
             appstore: AppStoreStats(
                 lastDay: "2026-10-12", weekStart: "2026-10-12", day: 2, week: 2, all: 123,
+                weekChange: 18, currency: "TRY", revenue: Revenue(day: 120, week: 840, all: 12450),
                 apps: [
                     AppRow(id: "1", name: "Demo App", day: k, week: k, all: Kinds(new: 100, re: 13, upd: 103, iap: 0)),
                     AppRow(id: "2", name: "Second App", day: k, week: k, all: Kinds(new: 17, re: 0, upd: 0, iap: 0)),
@@ -150,8 +213,11 @@ extension Snapshot {
             analytics: AnalyticsStats(
                 ready: true, lastDay: "2026-10-12",
                 week: ["_all": Funnel(impressions: 1240, pageViews: 210, downloads: 31, conversion: 3.1)], all: nil),
+            ratings: RatingsStats(average: 4.7, count: 38, apps: [
+                "1": AppRating(average: 4.8, count: 30), "2": AppRating(average: 4.5, count: 8)]),
             github: GitHubStats(
-                login: "octocat", since: 2018, today: 12, week: 64, lastYear: 1450, alltime: 3200,
+                login: "octocat", since: 2018, today: 12, week: 64, weekChange: -12, lastYear: 1450, alltime: 3200,
+                streak: Streak(current: 9, longest: 41),
                 series: (8...14).map { DayCount(date: "2026-10-\(String(format: "%02d", $0))", count: $0 * 20) },
                 calendar: days))
     }()

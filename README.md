@@ -11,6 +11,12 @@ Your App Store and GitHub numbers in the macOS menu bar and on the desktop.
 Everything runs locally. Data comes straight from Apple's App Store Connect API and
 GitHub's GraphQL API. Nothing is sent anywhere else.
 
+![Large widget, dark](docs/widget-large-dark.png)
+![Medium widget, light](docs/widget-medium-light.png)
+![Small widget, dark](docs/widget-small-dark.png)
+
+Previews use demo data.
+
 ## Install with Claude Code (copy-paste prompt)
 
 Paste this into Claude Code (or any coding agent that has a terminal):

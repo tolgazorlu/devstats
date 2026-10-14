@@ -5,11 +5,16 @@ which the desktop widget reads. When a source fails, its last good data is shown
 with the time it was fetched, so the menu and widget never go blank.
 """
 import datetime as dt
+import io
 import json
 import os
+import re
 import subprocess
+import sys
 import textwrap
+import unicodedata
 import urllib.parse
+from contextlib import redirect_stdout
 
 import analytics
 import appstore
@@ -56,9 +61,34 @@ def stars(avg):
     return "–" if avg is None else f"★ {avg:.1f}".replace(".", ",")
 
 
+# SwiftBar splits plugin output on every character in CharacterSet.newlines and treats
+# the first '|' as the start of parameters (bash=, href=, ...), a leading '-' as nesting.
+LINE_BREAKS = "\r\x0b\x0c\x85\u2028\u2029"
+REPO_URL = re.compile(r"^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
+
+
 def safe(text):
-    """SwiftBar treats '|' as the parameter separator and leading '-' as nesting."""
-    return text.replace("|", "/").replace("\n", " ").lstrip("-").strip()
+    """Make untrusted text (reviews, names, errors) inert inside one SwiftBar line.
+
+    Drops control, format (bidi overrides, zero-width) and line/paragraph separator
+    characters, replaces '|' so no parameters can be injected, and strips leading '-'
+    so the text cannot change nesting or become a separator.
+    """
+    text = "".join(" " if unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp") else c for c in str(text))
+    text = " ".join(text.replace("|", "/").split())
+    return text.lstrip("- ").strip()
+
+
+def emit_guarded(render):
+    """Run `render`, then remove any stray line breaks SwiftBar would split on.
+
+    Defense in depth: even if a field escaped safe(), it cannot start a new menu line.
+    """
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        render()
+    out = buf.getvalue().translate({ord(c): " " for c in LINE_BREAKS})
+    sys.stdout.write(out)
 
 
 def table_row(label, x, y, z, width):
@@ -117,7 +147,8 @@ def notify(title, subtitle, body):
 def notify_new_reviews(rv):
     new = (rv or {}).get("new") or []
     for r in new[:3]:
-        notify("Yeni yorum: " + r["app_name"], f"{'★' * (r['rating'] or 0)} {r['title']}", r["body"][:200])
+        stars_text = "★" * r["rating"] if isinstance(r.get("rating"), int) and 0 <= r["rating"] <= 5 else ""
+        notify("Yeni yorum: " + safe(r["app_name"]), f"{stars_text} {safe(r['title'])}"[:120], safe(r["body"])[:200])
     if len(new) > 3:
         notify("Dev Stats", f"{len(new)} yeni yorum", "Menüden Yorumlar bölümüne bak.")
 
@@ -129,7 +160,7 @@ def stale_note(key, errors, snap):
         return
     when = snap.get("fetched", {}).get(key)
     t = dt.datetime.fromisoformat(when).strftime("%d.%m %H:%M") if when else "hiç"
-    print(f"Güncellenemedi, son veri {t}: {errors[key]} | {GRAY}")
+    print(f"Güncellenemedi, son veri {t}: {safe(errors[key])} | {GRAY}")
 
 
 def funnel_rows(an, app, width, prefix=""):
@@ -144,14 +175,19 @@ def funnel_rows(an, app, width, prefix=""):
 def review_lines(rv, app=None, prefix=""):
     items = [r for r in rv.get("latest", []) if app is None or r["app"] == app]
     for r in items:
-        head = f"{'★' * (r['rating'] or 0):<5} {r['app_name'] + '  ' if app is None else ''}{safe(r['title'])[:40]}"
-        print(f"{prefix}{head} | {MONO}")
-        meta = f"{r['territory']} · {dt.date.fromisoformat(r['date']).strftime('%d.%m.%Y')} · {safe(r['nickname'])}"
-        print(f"{prefix}--{meta} | {GRAY}")
+        rating = r["rating"] if isinstance(r.get("rating"), int) and 0 <= r["rating"] <= 5 else 0
+        name = safe(r["app_name"]) + "  " if app is None else ""
+        print(f"{prefix}{'★' * rating:<5} {name}{safe(r['title'])[:40]} | {MONO}")
+        try:
+            when = dt.date.fromisoformat(r["date"]).strftime("%d.%m.%Y")
+        except (TypeError, ValueError):
+            when = "–"
+        print(f"{prefix}--{safe(r['territory'])[:3]} · {when} · {safe(r['nickname'])[:40]} | {GRAY}")
         for line in textwrap.wrap(safe(r["body"]), 60)[:6]:
-            print(f"{prefix}--{line} | size=12")
-        print(f"{prefix}--Cevapla (App Store Connect) | href=https://appstoreconnect.apple.com/apps/{r['app']}"
-              "/distribution/activity/ios/ratingsResponses")
+            print(f"{prefix}--{safe(line)} | size=12")
+        if str(r.get("app", "")).isdigit():
+            print(f"{prefix}--Cevapla (App Store Connect) | href=https://appstoreconnect.apple.com/apps/{r['app']}"
+                  "/distribution/activity/ios/ratingsResponses")
 
 
 def compact_row(label, x, y, z, width):
@@ -180,7 +216,8 @@ def app_submenu(r, an, rt, rv, cur):
         print("--Ülkeler: " + ", ".join(f"{c} {n}" for c, n in r["countries"]) + f" | {MONO}")
     if rv and rv.get("available"):
         review_lines(rv, r["id"], "--")
-    print(f"--App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
+    if str(r["id"]).isdigit():
+        print(f"--App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
 
 
 def render_appstore(snap, errors):
@@ -200,14 +237,15 @@ def render_appstore(snap, errors):
     print(compact_row("", "Gün", "Hafta", "Toplam", w) + f" | font=Menlo size=10 color=gray")
     for r in active:
         mark = arrow(appstore.change(r["week"]["new"], r["prev_week"]["new"]))
-        print(compact_row(r["name"], r["day"]["new"], r["week"]["new"], num(r["all"]["new"]), w)
+        print(compact_row(safe(r["name"]), r["day"]["new"], r["week"]["new"], num(r["all"]["new"]), w)
               + f" {mark} | {MONO}")
         app_submenu(r, an, rt, rv, cur)
     if idle:
         print(f"Henüz indirmesi olmayan {len(idle)} uygulama | {GRAY}")
         for r in idle:
-            print(f"--{r['name']} | {MONO}")
-            print(f"----App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
+            print(f"--{safe(r['name'])} | {MONO}")
+            if str(r["id"]).isdigit():
+                print(f"----App Store Connect'te aç | href=https://appstoreconnect.apple.com/apps/{r['id']}/analytics")
 
     # one summary row; the rest lives one level down
     parts = []
@@ -222,7 +260,7 @@ def render_appstore(snap, errors):
         review_lines(rv, None, "--")
         print("-----")
     elif rv:
-        print(f"--Yorumlar: {rv.get('reason')} | {GRAY}")
+        print(f"--Yorumlar: {safe(rv.get('reason', ''))} | {GRAY}")
     rev = a.get("revenue", {})
     w2 = len("Sayfa görüntüleme")
     print("--" + table_row("", "Gün", "Hafta", "Toplam", w2) + f" | {BOLD}")
@@ -252,21 +290,23 @@ def render_github(snap, errors):
         return
     s = g.get("streak") or {}
     streak = f"   seri {s['current']} gün" if s else ""
-    print(f"GitHub   bugün {num(g['today'])}{streak} | {BOLD} sfimage=square.grid.3x3.fill "
-          f"href=https://github.com/{g['login']}")
+    login = g["login"] if re.fullmatch(r"[A-Za-z0-9-]{1,39}", str(g.get("login", ""))) else ""
+    print(f"GitHub   bugün {num(g['today'])}{streak} | {BOLD} sfimage=square.grid.3x3.fill"
+          + (f" href=https://github.com/{login}" if login else ""))
     stale_note("github", errors, snap)
     row = lambda label, n, extra="": f"{label.ljust(14)}{num(n):>7} {extra}"  # noqa: E731
     print(row("Bu hafta", g["week"], arrow(g.get("week_change"))) + f" | {MONO}")
     print(row("Son 1 yıl", g["last_year"]) + f" | {MONO}")
 
     top = g.get("top_repos") or []
-    label = f"En çok: {top[0]['name'].split('/')[-1]} {top[0]['commits']}" if top else "Ayrıntılar"
+    label = f"En çok: {safe(top[0]['name'].split('/')[-1])} {top[0]['commits']}" if top else "Ayrıntılar"
     print(f"{label} | {MONO}")
     if top:
         total = g.get("week_commits")
         print(f"--Bu hafta commit{f' ({num(total)})' if total else ''} | {BOLD}")
         for r in top:
-            print(f"--{r['name'].split('/')[-1][:24]:<26}{r['commits']:>5} | {MONO} href={r['url']}")
+            link = f" href={r['url']}" if REPO_URL.match(str(r.get("url", ""))) else ""
+            print(f"--{safe(r['name'].split('/')[-1])[:24]:<26}{r['commits']:>5} | {MONO}{link}")
         print("-----")
     print("--" + row(f"Tüm zamanlar ({g['since']}-)", g["alltime"]).rstrip() + f" | {MONO}")
     if s:
@@ -290,14 +330,16 @@ def render_github(snap, errors):
 
 
 def main():
+    os.umask(0o077)  # cache, snapshot and seen-review files hold private data
+    asc.ensure_private_dir()
     snap, errors = gather()
     notify_new_reviews(snap.get("reviews") if "reviews" not in errors else None)
     a, g = snap.get("appstore"), snap.get("github")
     print(f":arrow.down.circle: {a['week'] if a else '!'}   :square.grid.3x3.fill: {g['today'] if g else '!'}")
     print("---")
-    render_appstore(snap, errors)
+    emit_guarded(lambda: render_appstore(snap, errors))
     print("---")
-    render_github(snap, errors)
+    emit_guarded(lambda: render_github(snap, errors))
     print("---")
     print(f"Yenile   {dt.datetime.now().strftime('%H:%M')} | refresh=true {GRAY}")
 

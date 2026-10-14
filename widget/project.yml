@@ -26,7 +26,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.temporary-exception.files.home-relative-path.read-only:
-          - /.config/asc-menubar/
+          - /.config/asc-menubar/snapshot.json
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DEVSTATS_BUNDLE_PREFIX).devstats
@@ -47,7 +47,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.temporary-exception.files.home-relative-path.read-only:
-          - /.config/asc-menubar/
+          - /.config/asc-menubar/snapshot.json
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(DEVSTATS_BUNDLE_PREFIX).devstats.widget

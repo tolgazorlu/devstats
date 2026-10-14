@@ -13,6 +13,17 @@ enum Main {
             MainActor.assumeIsolated { Renderer.measureAll() }
             exit(0)
         }
+        if CommandLine.arguments.contains("--check-sandbox") {
+            // The sandbox may read snapshot.json and nothing else in the config dir (key, config).
+            let dir = SnapshotStore.url.deletingLastPathComponent()
+            let extra = CommandLine.arguments.drop { $0 != "--check-sandbox" }.dropFirst()
+            let names = ["snapshot.json", "config.json"] + extra
+            for name in Set(names).sorted() {
+                let readable = (try? Data(contentsOf: dir.appendingPathComponent(name))) != nil
+                print("\(name): \(readable ? "readable" : "denied")")
+            }
+            exit(0)
+        }
         DevStatsApp.main()
     }
 }
@@ -83,7 +94,9 @@ enum Renderer {
     /// height left inside 16 pt content margins. Taller content is centered by WidgetKit and
     /// loses its top rows (the clipped headers), so every layout has to report "fits".
     static func measureAll() {
-        let snap = CommandLine.arguments.contains("--sample") ? .sample : (SnapshotStore.load() ?? .sample)
+        let loaded = CommandLine.arguments.contains("--sample") ? nil : SnapshotStore.load()
+        print("data: " + (loaded != nil ? "snapshot.json (sandbox read ok)" : "sample"))
+        let snap = loaded ?? .sample
         func measure<V: View>(_ name: String, _ size: CGSize, _ view: V) {
             let width = size.width - 32, available = size.height - 32
             let r = ImageRenderer(content: view.frame(width: width).fixedSize(horizontal: false, vertical: true))

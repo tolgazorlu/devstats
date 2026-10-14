@@ -241,3 +241,7 @@ defaults delete com.ameba.SwiftBar PluginDirectory   # if it pointed here
 ```
 
 Then revoke the API key in App Store Connect.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

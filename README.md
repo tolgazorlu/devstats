@@ -52,7 +52,7 @@ Install Dev Stats from https://github.com/tolgazorlu/devstats on my Mac.
 ## What you need
 
 - macOS 14 or newer
-- Python 3 (ships with the Xcode command line tools)
+- Python 3.10+ (`brew install python`; the system 3.9 no longer gets security fixes)
 - [SwiftBar](https://swiftbar.app) for the menu bar (the installer adds it via Homebrew)
 - [GitHub CLI](https://cli.github.com) logged in (`gh auth login`) for GitHub stats
 - Xcode, only for the desktop widget. The menu bar part works without it.
@@ -177,6 +177,52 @@ The widget is sandboxed and only has read access to `~/.config/asc-menubar/`.
   allow.
 - **Widget not in the gallery:** open `~/Applications/DevStats.app` once, then check
   `pluginkit -m | grep devstats`.
+
+## Security and privacy
+
+Everything runs on your Mac. There is no server, no telemetry and no analytics.
+
+**What is stored, and where.** Credentials and data live only in `~/.config/asc-menubar/`
+(directory `0700`, key and config `0600`, outside the repository and in `.gitignore`):
+the `.p8` key, `config.json` (issuer id, key id, vendor number, currency), downloaded
+reports in `cache/`, and `snapshot.json`. The snapshot holds your numbers, review texts
+and private repository names; it never leaves the machine.
+
+**Every network destination.**
+
+| Host | Sent | Credentials |
+| --- | --- | --- |
+| `api.appstoreconnect.apple.com` | API requests | Short-lived (20 min) ES256 JWT. The client refuses to attach it to any other host or to plain HTTP, including paging links. |
+| Apple's presigned report URLs | download only | none |
+| `itunes.apple.com` | app ids, storefront | none |
+| `open.er-api.com` | the currency code | none |
+| `api.github.com` | GraphQL and commit search | the token from `gh auth token`, read-only requests |
+
+**API key role.** Use a **Sales and Reports** key day to day. An **Admin** key is needed
+once, for `scripts/request_reports.py`; revoke it afterwards. Reading customer reviews
+may need a role that has access to them; without it the menu shows a note and
+everything else keeps working.
+
+**Untrusted text.** Review titles and bodies are written by strangers. Before anything
+reaches the SwiftBar menu it is stripped of control, bidi and line/paragraph separator
+characters and `|`, so a review cannot add menu items, links or commands. The whole
+section output passes a second filter for stray line breaks. `tests/test_security.py`
+covers this with hostile input.
+
+**Widget sandbox.** The widget is sandboxed and may read exactly one file,
+`~/.config/asc-menubar/snapshot.json`. Check it yourself:
+
+```sh
+~/Applications/DevStats.app/Contents/MacOS/DevStats --check-sandbox AuthKey_<KEYID>.p8
+# snapshot.json: readable, config.json: denied, AuthKey_<KEYID>.p8: denied
+```
+
+**Dependencies.** Two, pinned exactly in `requirements.txt` (PyJWT, cryptography) and
+checked with `pip-audit`. The installer prefers a supported Python (3.10+) over the
+system 3.9.
+
+**Reporting a vulnerability.** Please use GitHub's private vulnerability reporting
+(Security tab) rather than a public issue.
 
 ## Development
 

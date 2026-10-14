@@ -1,0 +1,5 @@
+// Shared build settings. Personal values (team id, bundle prefix) live in
+// Local.xcconfig, which is git-ignored. Copy Local.xcconfig.example to start.
+DEVSTATS_BUNDLE_PREFIX = com.example
+DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"

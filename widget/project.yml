@@ -1,0 +1,56 @@
+name: DevStats
+options:
+  deploymentTarget:
+    macOS: "14.0"
+configFiles:
+  Debug: Config.xcconfig
+  Release: Config.xcconfig
+settings:
+  base:
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  DevStats:
+    type: application
+    platform: macOS
+    sources: [App, Shared]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Dev Stats
+        LSApplicationCategoryType: public.app-category.developer-tools
+    entitlements:
+      path: App/DevStats.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.config/asc-menubar/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(DEVSTATS_BUNDLE_PREFIX).devstats
+    dependencies:
+      - target: DevStatsWidget
+  DevStatsWidget:
+    type: app-extension
+    platform: macOS
+    sources: [Widget, Shared]
+    info:
+      path: Widget/Info.plist
+      properties:
+        CFBundleDisplayName: Dev Stats
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    entitlements:
+      path: Widget/DevStatsWidget.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.temporary-exception.files.home-relative-path.read-only:
+          - /.config/asc-menubar/
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(DEVSTATS_BUNDLE_PREFIX).devstats.widget
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
